@@ -9,7 +9,6 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID  = process.env.GUILD_ID;
 const API_KEY   = process.env.API_KEY;
-const PORT      = process.env.PORT || 3000;
 const ADMIN_ROLE_IDS = (process.env.ADMIN_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID || !API_KEY) {
