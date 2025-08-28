@@ -5,11 +5,13 @@ import {
   REST, Routes, SlashCommandBuilder
 } from 'discord.js';
 
-const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID  = process.env.GUILD_ID;
-const API_KEY   = process.env.API_KEY;
-const ADMIN_ROLE_IDS = (process.env.ADMIN_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+const TOKEN   = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;   // Application ID
+const GUILD_ID  = process.env.GUILD_ID;    // Server ID
+const API_KEY   = process.env.API_KEY;     // usata anche su Roblox
+const PORT      = process.env.PORT || 3000;
+const ADMIN_ROLE_IDS = (process.env.ADMIN_ROLE_IDS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID || !API_KEY) {
   console.error('Mancano variabili: DISCORD_TOKEN, CLIENT_ID, GUILD_ID, API_KEY');
@@ -19,7 +21,7 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !API_KEY) {
 const CODES = new Map(); // code -> { rpName, createdAt, expiresAt }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers], // IMPORTANTE: GuildMembers
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers], // NECESSARIO
   partials: [Partials.Channel]
 });
 
@@ -28,7 +30,9 @@ async function registerCommands() {
     new SlashCommandBuilder()
       .setName('nickme')
       .setDescription('Imposta il tuo nickname al Nome RP del gioco')
-      .addStringOption(o => o.setName('codice').setDescription('Codice a 6 cifre dal gioco').setRequired(true))
+      .addStringOption(o =>
+        o.setName('codice').setDescription('Codice a 6 cifre dal gioco').setRequired(true)
+      )
   ].map(c => c.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -39,12 +43,14 @@ async function registerCommands() {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== 'nickme') return;
+
   const code = interaction.options.getString('codice');
   const entry = CODES.get(code);
 
   if (!entry || Date.now() > entry.expiresAt) {
     return interaction.reply({ content: 'Codice non valido o scaduto.', ephemeral: true });
   }
+
   CODES.delete(code);
   try {
     await interaction.member.setNickname(entry.rpName);
@@ -58,9 +64,14 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// ---------- Express ----------
 const app = express();
 app.use(express.json());
 
+// sanity check
+app.get('/', (_req, res) => res.send('NickBot online'));
+
+// riceve codici dal gioco
 app.post('/nick-codes', (req, res) => {
   const key = req.header('x-api-key');
   if (key !== API_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
@@ -73,7 +84,7 @@ app.post('/nick-codes', (req, res) => {
   return res.json({ ok: true });
 });
 
-// NEW: verifica admin in base al nickname (Nome RP)
+// verifica admin con nickname = Nome RP + ruolo
 app.get('/is-admin', async (req, res) => {
   const key = req.header('x-api-key');
   if (key !== API_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
@@ -83,14 +94,10 @@ app.get('/is-admin', async (req, res) => {
 
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
-    // Cerca per nickname/displayName (richiede GuildMembers intent)
+    // richiede GuildMembers intent
     const candidates = await guild.members.search({ query: rp, limit: 10 });
-    // match esatto sul displayName (nickname efficace)
-    let found = candidates.find(m => m.displayName === rp);
-    // fallback: case-insensitive
-    if (!found) {
-      found = candidates.find(m => m.displayName.toLowerCase() === rp.toLowerCase());
-    }
+    let found = candidates.find(m => m.displayName === rp)
+            || candidates.find(m => m.displayName.toLowerCase() === rp.toLowerCase());
     let isAdmin = false;
     if (found) {
       isAdmin = ADMIN_ROLE_IDS.length > 0
@@ -104,11 +111,10 @@ app.get('/is-admin', async (req, res) => {
   }
 });
 
-app.get('/', (_req, res) => res.send('NickBot online'));
+// AVVIO: UN SOLO app.listen QUI
+app.listen(PORT, () => {
+  console.log('HTTP API on', PORT);
+});
 
-app.listen(PORT, () => console.log('HTTP API on', PORT));
-client.login(TOKEN).then(registerCommands).catch(console.error);
-app.get('/', (_req, res) => res.send('NickBot online')); // ping
-
-app.listen(PORT, () => console.log('HTTP API on', PORT));
+// login bot e registrazione comandi
 client.login(TOKEN).then(registerCommands).catch(console.error);
